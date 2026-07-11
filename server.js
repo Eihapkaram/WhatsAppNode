@@ -76,19 +76,19 @@ app.get("/whatsapp-status", (req, res) => {
   });
 });
 
-// الاستماع للرسايل الجديدة وإرسالها للارافل فوراً
+// 🔥 الاستماع للرسايل الجديدة وتمريرها إلى لارافل ليقوم بحفظها في جدول received_messages
 client.on("message", async (msg) => {
   if (msg.from.includes("@g.us")) return; // تجاهل المجموعات لتقليل الضغط
 
   try {
     const laravelUrl = process.env.LARAVEL_API_URL || "https://whatsapplaravel-production.up.railway.app";
 
-    // إرسال البيانات بـ المسميات المطابقة تماماً لكود لارافل الحالي عندك
+    // إرسال البيانات بـ المسميات المطابقة تماماً لكود لارافل الحالي عندك ($request->phone و $request->message)
     await axios.post(`${laravelUrl}/api/webhook/receive`, {
-      phone: msg.from.replace("@c.us", ""),
-      message: msg.body,
+      phone: msg.from.replace("@c.us", ""), // قص الزيادات وإرسال الرقم الصافي
+      message: msg.body,                   // نص الرسالة
     });
-    console.log(`تم تحويل رسالة مستلمة من ${msg.from} إلى Laravel`);
+    console.log(`تم تحويل رسالة مستلمة من ${msg.from} إلى Laravel بنجاح للتخزين.`);
   } catch (error) {
     console.error("فشل إرسال الرسالة المستلمة للارافل:", error.message);
   }
