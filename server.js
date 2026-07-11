@@ -12,6 +12,7 @@ const client = new Client({
   authStrategy: new LocalAuth(),
   puppeteer: {
     headless: true,
+    executablePath: '/usr/bin/chromium', // ✨ توجيه السيرفر لمكان الكروميوم على لينكس لمنع التعليق
     args: [
       "--no-sandbox",
       "--disable-setuid-sandbox",
