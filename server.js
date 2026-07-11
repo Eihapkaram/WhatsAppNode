@@ -3,10 +3,8 @@ const qrcode = require("qrcode-terminal");
 const express = require("express");
 const axios = require("axios");
 const qrImage = require("qr-image");
-const cors = require("cors"); // تفعيل الـ CORS لمنع أي حظر للطلبات
 
 const app = express();
-app.use(cors()); 
 app.use(express.json());
 
 // 🛠️ إعداد الـ Puppeteer بأقصى وضع لتوفير الرام وحماية الحاوية من الـ Crash
@@ -78,21 +76,21 @@ app.get("/whatsapp-status", (req, res) => {
   });
 });
 
-// 🔥 الاستماع للرسايل الجديدة وإرسالها للارافل فوراً على مسارك الفعلي
+// الاستماع للرسايل الجديدة وإرسالها للارافل فوراً
 client.on("message", async (msg) => {
   if (msg.from.includes("@g.us")) return; // تجاهل المجموعات لتقليل الضغط
 
   try {
     const laravelUrl = process.env.LARAVEL_API_URL || "https://whatsapplaravel-production.up.railway.app";
 
-    // 🔗 تم التثبيت على مسارك الفعلي المتواجد في لارافل حالياً
+    // إرسال البيانات بـ المسميات المطابقة تماماً لكود لارافل الحالي عندك
     await axios.post(`${laravelUrl}/api/webhook/receive`, {
-      phone: msg.from.replace("@c.us", ""), // إرسال الرقم نظيف تماماً
-      message: msg.body,                   // محتوى الرسالة النصية
+      phone: msg.from.replace("@c.us", ""),
+      message: msg.body,
     });
-    console.log(`[Webhook Success] تم تحويل رسالة من ${msg.from} إلى لارافل.`);
+    console.log(`تم تحويل رسالة مستلمة من ${msg.from} إلى Laravel`);
   } catch (error) {
-    console.error("❌ فشل إرسال الـ Webhook للارافل:", error.message);
+    console.error("فشل إرسال الرسالة المستلمة للارافل:", error.message);
   }
 });
 
@@ -109,16 +107,17 @@ app.post("/send-message", async (req, res) => {
   }
 });
 
-// 🚀 تشغيل السيرفر
+// 🚀 1. تشغيل خادم الـ Express أولاً لربط البورت بالمنصة فوراً وقبول الـ Traffic ومنع الـ 502
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, "0.0.0.0", () => {
   console.log(`Node Webhook Bridge Server is fully bound to port ${PORT}`);
   
+  // ⏳ 2. تأخير تشغيل Puppeteer لمدة 5 ثواني كاملة لضمان استقرار الـ Proxy واختفاء الـ 502 تماماً
   console.log("بانتظار استقرار الـ Proxy (5 ثواني)...");
   setTimeout(() => {
-    console.log("جاري تشغيل Puppeteer و WhatsApp Web...");
+    console.log("جاري تشغيل Puppeteer و WhatsApp Web في الخلفية الآمنة...");
     client.initialize().catch(err => {
        console.error("خطأ حرج أثناء تشغيل عميل الواتساب ويب:", err.message);
     });
-  }, 5000);
+  }, 5000); // 5000 ملي ثانية تعطي السيرفر وقت كامل للاستقرار الشبكي أولاً
 });
