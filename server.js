@@ -7,21 +7,22 @@ const qrImage = require("qr-image");
 const app = express();
 app.use(express.json());
 
-// 🛠️ إعداد الـ Puppeteer للعمل على بيئة Linux (Railway) مع تحديد مسار المتصفح المستقر
+// 🛠️ إعداد الـ Puppeteer المطور لبيئات الحاويات (Railway) لمنع تجميد الذاكرة المشتركة
 const client = new Client({
   authStrategy: new LocalAuth(),
   puppeteer: {
     headless: true,
-    executablePath: '/usr/bin/chromium', // ✨ يضمن تشغيل الكروميوم المثبت عبر Dockerfile بنجاح
+    executablePath: '/usr/bin/chromium', 
     args: [
       "--no-sandbox",
       "--disable-setuid-sandbox",
-      "--disable-dev-shm-usage",
-      "--disable-accelerated-2d-canvas",
-      "--no-first-run",
+      "--disable-dev-shm-usage", // يمنع قفل المتصفح بسبب مساحة الـ /dev/shm الصغيرة في الحاويات
+      "--disable-gpu",
       "--no-zygote",
       "--single-process",
-      "--disable-gpu",
+      "--no-first-run",
+      "--ignore-certificate-errors",
+      "--no-default-browser-check"
     ],
   },
 });
@@ -29,18 +30,16 @@ const client = new Client({
 let currentQrBase64 = null;
 let connectionStatus = "DISCONNECTED"; // DISCONNECTED, QR_READY, CONNECTED
 
-// ✨ الـ Root Endpoint الأساسية لإعلام Railway والـ Proxy أن السيرفر يعمل ومستقر
+// ✨ الـ Root Endpoint الأساسية للرد الفوري على الـ Proxy ومنع الـ 502
 app.get("/", (req, res) => {
   res.status(200).send("WhatsApp Node Bridge is Alive and Running!");
 });
 
 client.on("qr", (qr) => {
   connectionStatus = "QR_READY";
-  // توليد الـ QR للشاشة والـ Logs معاً
   const image = qrImage.imageSync(qr, { type: "png" });
   currentQrBase64 = `data:image/png;base64,${image.toString("base64")}`;
 
-  // طباعة الكود في الـ Terminal/Logs الخاصة بـ Railway كإجراء احتياطي
   qrcode.generate(qr, { small: true });
   console.log("تم توليد QR Code جديد وبانتظار المسح...");
 });
@@ -67,7 +66,7 @@ app.get("/whatsapp-status", (req, res) => {
 
 // الاستماع للرسايل الجديدة وإرسالها للارافل فوراً
 client.on("message", async (msg) => {
-  if (msg.from.includes("@g.us")) return; // تجاهل رسائل المجموعات
+  if (msg.from.includes("@g.us")) return; // تجاهل المجموعات
 
   try {
     const laravelUrl = process.env.LARAVEL_API_URL || "http://localhost:8000";
@@ -95,11 +94,14 @@ app.post("/send-message", async (req, res) => {
   }
 });
 
-// بدء تشغيل عميل الواتساب ويب
-client.initialize();
-
-// جعل الباكيند يستمع للبورت الديناميكي الموفر من Railway ويقبل الاتصال الخارجي 0.0.0.0
+// 🚀 1. تشغيل خادم الـ Web أولاً لربط البورت بالمنصة فوراً ومنع الـ 502
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, "0.0.0.0", () =>
-  console.log(`Node Webhook Bridge Server running on port ${PORT}`),
-);
+app.listen(PORT, "0.0.0.0", () => {
+  console.log(`Node Webhook Bridge Server running on port ${PORT}`);
+  
+  // ⏳ 2. تشغيل الـ Puppeteer والواتساب في الخلفية بعد استقرار الخادم تماماً
+  console.log("جاري تشغيل Puppeteer و WhatsApp Web في الخلفية...");
+  client.initialize().catch(err => {
+     console.error("خطأ أثناء تشغيل عميل الواتساب ويب:", err.message);
+  });
+});
