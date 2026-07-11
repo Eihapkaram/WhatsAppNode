@@ -7,10 +7,10 @@ const qrImage = require("qr-image");
 const app = express();
 app.use(express.json());
 
-// 🛠️ إعداد الـ Puppeteer المطور لبيئات الحاويات السحابية وتفادي الـ Crashes
+// 🛠️ إعداد الـ Puppeteer بأقصى درجات الحماية وتوفير الرام لمنع الـ Crash في Railway
 const client = new Client({
   authStrategy: new LocalAuth({
-    dataPath: '/tmp/.wwebjs_auth' // ✨ حفظ جلسة تسجيل الدخول في المجلد المؤقت الآمن والمسموح بالكتابة فيه
+    dataPath: '/tmp/.wwebjs_auth' // حفظ الجلسة في مجلد الـ /tmp الآمن على لينكس
   }),
   puppeteer: {
     headless: true,
@@ -18,15 +18,23 @@ const client = new Client({
     args: [
       "--no-sandbox",
       "--disable-setuid-sandbox",
-      "--disable-dev-shm-usage", // يمنع قفل المتصفح المفاجئ بسبب مساحة الـ /dev/shm
+      "--disable-dev-shm-usage", // يمنع قفل المتصفح المفاجئ بسبب نقص الذاكرة المشتركة
       "--disable-gpu",
       "--no-zygote",
-      "--single-process",
+      "--single-process", // إجبار الكروميوم على العمل في عملية واحدة لتوفير الرام
       "--no-first-run",
       "--ignore-certificate-errors",
       "--no-default-browser-check",
       "--disable-extensions",
-      "--deterministic-mode" // تقليل استهلاك البروسيسور والرامات لأقصى درجة
+      "--deterministic-mode",
+      
+      // ✨ أعلام جبارة لمنع تحميل المكونات الثقيلة وتوفير أكثر من 300MB رام:
+      "--disable-web-security",
+      "--disable-features=IsolateOrigins,site-per-process",
+      "--blink-settings=imagesEnabled=false", // 🔥 منع تحميل الصور تماماً داخل المتصفح الخفي لتوفير الرام
+      "--disable-audio-output", // تعطيل الصوت تماماً
+      "--disable-gl-drawing-for-tests",
+      "--disable-software-rasterizer"
     ],
   },
 });
@@ -34,7 +42,7 @@ const client = new Client({
 let currentQrBase64 = null;
 let connectionStatus = "DISCONNECTED"; // DISCONNECTED, QR_READY, CONNECTED
 
-// ✨ الـ Root Endpoint الأساسية للرد الفوري على الـ Proxy ومنع الـ 502 والـ Application Failed to Respond
+// ✨ الـ Root Endpoint الأساسية للرد الفوري على الـ Proxy ومنع الـ Application failed to respond
 app.get("/", (req, res) => {
   res.status(200).send("WhatsApp Node Bridge is Alive and Running!");
 });
@@ -45,7 +53,7 @@ client.on("qr", (qr) => {
   currentQrBase64 = `data:image/png;base64,${image.toString("base64")}`;
 
   qrcode.generate(qr, { small: true });
-  console.log("تم توليد QR Code جديد وبانتظار المسح المباشر...");
+  console.log("=> QR Code Ready for Scanning!");
 });
 
 client.on("ready", () => {
@@ -73,7 +81,7 @@ client.on("message", async (msg) => {
   if (msg.from.includes("@g.us")) return; // تجاهل المجموعات لتقليل الضغط
 
   try {
-    const laravelUrl = process.env.LARAVEL_API_URL || "http://localhost:8000";
+    const laravelUrl = process.env.LARAVEL_API_URL || "https://whatsapplaravel-production.up.railway.app";
 
     await axios.post(`${laravelUrl}/api/webhook/receive`, {
       phone: msg.from.replace("@c.us", ""),
@@ -103,8 +111,8 @@ const PORT = process.env.PORT || 3000;
 app.listen(PORT, "0.0.0.0", () => {
   console.log(`Node Webhook Bridge Server running on port ${PORT}`);
   
-  // ⏳ 2. تشغيل الـ Puppeteer والواتساب في الخلفية بعد استقرار الخادم
-  console.log("جاري تشغيل Puppeteer و WhatsApp Web في الخلفية الآمنة...");
+  // ⏳ 2. تشغيل الـ Puppeteer والواتساب في الخلفية بعد استقرار الخادم تماماً لتفادي الـ Timeout
+  console.log("جاري تشغيل Puppeteer و WhatsApp Web في الخلفية الآمنة لتقليل استهلاك الرام...");
   client.initialize().catch(err => {
      console.error("خطأ حرج أثناء تشغيل عميل الواتساب ويب:", err.message);
   });
