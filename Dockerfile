@@ -1,117 +1,44 @@
-const { Client, LocalAuth } = require("whatsapp-web.js");
-const qrcode = require("qrcode-terminal");
-const express = require("express");
-const axios = require("axios");
-const qrImage = require("qr-image");
+# 1. استخدام نسخة Node مستقرة وخفيفة مبنية على Debian
+FROM node:18-slim
 
-const app = express();
-app.use(express.json());
+# 2. تثبيت الحزم والمتصفح الخفي (Chromium) والخطوط اللازمة لتفادي مشاكل الـ Sandbox في لينكس
+RUN apt-get update && apt-get install -y \
+    chromium \
+    fonts-ipafont-gothic \
+    fonts-wqy-zenhei \
+    fonts-thai-tlwg \
+    fonts-kacst \
+    fonts-freefont-ttf \
+    libxss1 \
+    libgconf-2-4 \
+    libatk1.0-0 \
+    libatk-bridge2.0-0 \
+    libgdk-pixbuf2.0-0 \
+    libgtk-3-0 \
+    libgbm-dev \
+    libnss3 \
+    libasound2 \
+    --no-install-recommends \
+    && rm -rf /var/lib/apt/lists/*
 
-// 🛡️ إعداد الـ Puppeteer بأقصى وضع تقشير وتوفير للذاكرة لمنع الـ Crash
-const client = new Client({
-  authStrategy: new LocalAuth({
-    dataPath: '/tmp/.wwebjs_auth'
-  }),
-  puppeteer: {
-    headless: true,
-    executablePath: '/usr/bin/chromium', 
-    args: [
-      "--no-sandbox",
-      "--disable-setuid-sandbox",
-      "--disable-dev-shm-usage",
-      "--disable-gpu",
-      "--no-zygote",
-      "--single-process", 
-      "--no-first-run",
-      "--ignore-certificate-errors",
-      "--no-default-browser-check",
-      "--disable-extensions",
-      "--blink-settings=imagesEnabled=false", // منع الصور
-      "--disable-audio-output" // تعطيل الصوت
-    ],
-  },
-});
+# 3. توجيه بيئة الـ Puppeteer لاستخدام المتصفح المثبت في السيرفر مباشرة لتوفير المساحة والرام
+ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
+ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
 
-let currentQrBase64 = null;
-let connectionStatus = "DISCONNECTED";
+# 4. تحديد مجلد العمل داخل الحاوية
+WORKDIR /usr/src/app
 
-// ✨ الـ Root Endpoint معدلة لإجبار الـ Proxy على قفل الكاش والرد الفوري
-app.get("/", (req, res) => {
-  res.set({
-    'Content-Type': 'text/plain',
-    'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
-    'Connection': 'close'
-  });
-  res.status(200).send("WhatsApp Node Bridge is Alive and Running!");
-});
+# 5. نسخ ملفات الحزم أولاً لتسريع الـ Caching أثناء الـ Build
+COPY package*.json ./
 
-client.on("qr", (qr) => {
-  connectionStatus = "QR_READY";
-  try {
-    const image = qrImage.imageSync(qr, { type: "png" });
-    currentQrBase64 = `data:image/png;base64,${image.toString("base64")}`;
-    qrcode.generate(qr, { small: true });
-    console.log("=> QR Code Ready for Scanning!");
-  } catch (err) {
-    console.error("خطأ أثناء توليد الـ QR:", err.message);
-  }
-});
+# 6. تثبيت مصفوفة الموديولات الخاصة بالـ Production فقط لتوفير المساحة
+RUN npm ci --only=production
 
-client.on("ready", () => {
-  connectionStatus = "CONNECTED";
-  currentQrBase64 = null;
-  console.log("تم اتصال رقمك بالواتساب بنجاح واكتمل التوثيق!");
-});
+# 7. نسخ باقي ملفات السورس كود بالكامل إلى الحاوية
+COPY . .
 
-client.on("disconnected", () => {
-  connectionStatus = "DISCONNECTED";
-  currentQrBase64 = null;
-  console.log("تم تسجيل الخروج أو فصل جلسة الواتساب.");
-});
+# 8. إتاحة البورت 3000 لـ Railway لربط الـ Proxy الداخلي
+EXPOSE 3000
 
-app.get("/whatsapp-status", (req, res) => {
-  res.set('Cache-Control', 'no-store');
-  res.json({
-    status: connectionStatus,
-    qr: currentQrBase64,
-  });
-});
-
-client.on("message", async (msg) => {
-  if (msg.from.includes("@g.us")) return;
-  try {
-    const laravelUrl = process.env.LARAVEL_API_URL || "https://whatsapplaravel-production.up.railway.app";
-    await axios.post(`${laravelUrl}/api/webhook/receive`, {
-      phone: msg.from.replace("@c.us", ""),
-      message: msg.body,
-    });
-    console.log(`تم تحويل رسالة مستلمة من ${msg.from} إلى Laravel`);
-  } catch (error) {
-    console.error("فشل إرسال الرسالة المستلمة للارافل:", error.message);
-  }
-});
-
-app.post("/send-message", async (req, res) => {
-  const { phone, message } = req.body;
-  const formattedPhone = `${phone}@c.us`;
-  try {
-    await client.sendMessage(formattedPhone, message);
-    res.status(200).json({ success: true });
-  } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
-  }
-});
-
-// 🚀 تشغيل الخادم والربط الفوري بالبورت
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, "0.0.0.0", () => {
-  console.log(`Node Webhook Bridge Server is fully bound to port ${PORT}`);
-  
-  // تأخير تشغيل الواتساب 8 ثواني كاملة عشان السيرفر يستقر تماماً في Railway ويعدي الـ Health Check
-  setTimeout(() => {
-    console.log("جاري إطلاق عميل الواتساب في الخلفية...");
-    client.initialize().catch(err => {
-       console.error("خطأ حرج أثناء تشغيل عميل الواتساب ويب:", err.message);
-    });
-  }, 8000);
-});
+# 9. أمر التشغيل الأساسي للمشروع موجه للملف الفعلي server.js
+CMD ["node", "server.js"]
