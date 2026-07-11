@@ -7,7 +7,7 @@ const qrImage = require("qr-image");
 const app = express();
 app.use(express.json());
 
-// 🛠️ إعداد الـ Puppeteer بأقصى درجات الحماية وتوفير الرام لمنع الـ Crash في Railway
+// 🛠️ إعداد الـ Puppeteer بأقصى وضع لتوفير الرام وحماية الحاوية من الـ Crash
 const client = new Client({
   authStrategy: new LocalAuth({
     dataPath: '/tmp/.wwebjs_auth' // حفظ الجلسة في مجلد الـ /tmp الآمن على لينكس
@@ -18,7 +18,7 @@ const client = new Client({
     args: [
       "--no-sandbox",
       "--disable-setuid-sandbox",
-      "--disable-dev-shm-usage", // يمنع قفل المتصفح المفاجئ بسبب نقص الذاكرة المشتركة
+      "--disable-dev-shm-usage", // يمنع قفل المتصفح بسبب نقص الذاكرة المشتركة
       "--disable-gpu",
       "--no-zygote",
       "--single-process", // إجبار الكروميوم على العمل في عملية واحدة لتوفير الرام
@@ -28,11 +28,11 @@ const client = new Client({
       "--disable-extensions",
       "--deterministic-mode",
       
-      // ✨ أعلام جبارة لمنع تحميل المكونات الثقيلة وتوفير أكثر من 300MB رام:
+      // ✨ أعلام جبارة لمنع تحميل المكونات الثقيلة وتوفير الرام:
       "--disable-web-security",
       "--disable-features=IsolateOrigins,site-per-process",
-      "--blink-settings=imagesEnabled=false", // 🔥 منع تحميل الصور تماماً داخل المتصفح الخفي لتوفير الرام
-      "--disable-audio-output", // تعطيل الصوت تماماً
+      "--blink-settings=imagesEnabled=false", // منع تحميل الصور تماماً داخل المتصفح الخفي لتوفير الرام
+      "--disable-audio-output", // تعطيل الصوت
       "--disable-gl-drawing-for-tests",
       "--disable-software-rasterizer"
     ],
@@ -42,7 +42,7 @@ const client = new Client({
 let currentQrBase64 = null;
 let connectionStatus = "DISCONNECTED"; // DISCONNECTED, QR_READY, CONNECTED
 
-// ✨ الـ Root Endpoint الأساسية للرد الفوري على الـ Proxy ومنع الـ Application failed to respond
+// ✨ الـ Root Endpoint الأساسية للرد الفوري على الـ Proxy ومنع الـ 502 نهائياً
 app.get("/", (req, res) => {
   res.status(200).send("WhatsApp Node Bridge is Alive and Running!");
 });
@@ -106,14 +106,17 @@ app.post("/send-message", async (req, res) => {
   }
 });
 
-// 🚀 1. تشغيل خادم الـ Express أولاً لربط البورت بالمنصة فوراً ومنع أي تجميد للـ Proxy
+// 🚀 1. تشغيل خادم الـ Express أولاً لربط البورت بالمنصة فوراً وقبول الـ Traffic ومنع الـ 502
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, "0.0.0.0", () => {
-  console.log(`Node Webhook Bridge Server running on port ${PORT}`);
+  console.log(`Node Webhook Bridge Server is fully bound to port ${PORT}`);
   
-  // ⏳ 2. تشغيل الـ Puppeteer والواتساب في الخلفية بعد استقرار الخادم تماماً لتفادي الـ Timeout
-  console.log("جاري تشغيل Puppeteer و WhatsApp Web في الخلفية الآمنة لتقليل استهلاك الرام...");
-  client.initialize().catch(err => {
-     console.error("خطأ حرج أثناء تشغيل عميل الواتساب ويب:", err.message);
-  });
+  // ⏳ 2. تأخير تشغيل Puppeteer لمدة 5 ثواني كاملة لضمان استقرار الـ Proxy واختفاء الـ 502 تماماً
+  console.log("بانتظار استقرار الـ Proxy (5 ثواني)...");
+  setTimeout(() => {
+    console.log("جاري تشغيل Puppeteer و WhatsApp Web في الخلفية الآمنة...");
+    client.initialize().catch(err => {
+       console.error("خطأ حرج أثناء تشغيل عميل الواتساب ويب:", err.message);
+    });
+  }, 5000); // 5000 ملي ثانية تعطي السيرفر وقت كامل للاستقرار الشبكي أولاً
 });
