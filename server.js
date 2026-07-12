@@ -98,15 +98,26 @@ client.on("message", async (msg) => {
   }
 });
 
-// الـ Endpoint الخاص بإرسال الرسائل المجدولة من طوابير لارافل
+// الـ Endpoint الخاص بإرسال الرسائل المجدولة من طوابير لارافل (مدعوم للأرقام ومعرفات الـ LID)
 app.post("/send-message", async (req, res) => {
   const { phone, message } = req.body;
-  const formattedPhone = `${phone}@c.us`;
+  
+  // منطق ذكي لتجهيز الرقم:
+  let formattedPhone = phone;
+
+  // لو الرقم مش محتوي على @ (يعني جاي من الإكسيل كأرقام مجردة)
+  if (!phone.includes('@')) {
+    // لو الرقم طويل (معرف خفي) نستخدم @lid، لو رقم عادي نستخدم @c.us
+    const suffix = phone.length > 13 ? '@lid' : '@c.us';
+    formattedPhone = `${phone}${suffix}`;
+  }
 
   try {
+    console.log(`محاولة إرسال رسالة إلى: ${formattedPhone}`);
     await client.sendMessage(formattedPhone, message);
     res.status(200).json({ success: true });
   } catch (error) {
+    console.error(`خطأ أثناء إرسال الرسالة لـ ${formattedPhone}:`, error.message);
     res.status(500).json({ success: false, error: error.message });
   }
 });
