@@ -18,21 +18,19 @@ const client = new Client({
     args: [
       "--no-sandbox",
       "--disable-setuid-sandbox",
-      "--disable-dev-shm-usage", // يمنع قفل المتصفح بسبب نقص الذاكرة المشتركة
+      "--disable-dev-shm-usage",
       "--disable-gpu",
       "--no-zygote",
-      "--single-process", // إجبار الكروميوم على العمل في عملية واحدة لتوفير الرام
+      "--single-process",
       "--no-first-run",
       "--ignore-certificate-errors",
       "--no-default-browser-check",
       "--disable-extensions",
       "--deterministic-mode",
-      
-      // ✨ أعلام جبارة لمنع تحميل المكونات الثقيلة وتوفير الرام:
       "--disable-web-security",
       "--disable-features=IsolateOrigins,site-per-process",
-      "--blink-settings=imagesEnabled=false", // منع تحميل الصور تماماً داخل المتصفح الخفي لتوفير الرام
-      "--disable-audio-output", // تعطيل الصوت
+      "--blink-settings=imagesEnabled=false",
+      "--disable-audio-output",
       "--disable-gl-drawing-for-tests",
       "--disable-software-rasterizer"
     ],
@@ -40,9 +38,8 @@ const client = new Client({
 });
 
 let currentQrBase64 = null;
-let connectionStatus = "DISCONNECTED"; // DISCONNECTED, QR_READY, CONNECTED
+let connectionStatus = "DISCONNECTED";
 
-// ✨ الـ Root Endpoint الأساسية للرد الفوري على الـ Proxy ومنع الـ 502 نهائياً
 app.get("/", (req, res) => {
   res.status(200).send("WhatsApp Node Bridge is Alive and Running!");
 });
@@ -51,9 +48,7 @@ client.on("qr", (qr) => {
   connectionStatus = "QR_READY";
   const image = qrImage.imageSync(qr, { type: "png" });
   currentQrBase64 = `data:image/png;base64,${image.toString("base64")}`;
-
   qrcode.generate(qr, { small: true });
-  console.log("=> QR Code Ready for Scanning!");
 });
 
 client.on("ready", () => {
@@ -65,43 +60,39 @@ client.on("ready", () => {
 client.on("disconnected", () => {
   connectionStatus = "DISCONNECTED";
   currentQrBase64 = null;
-  console.log("تم تسجيل الخروج أو فصل جلسة الواتساب.");
 });
 
-// Endpoint لمتابعة الحالة والـ QR من الـ Vue عبر لارافل
 app.get("/whatsapp-status", (req, res) => {
-  res.json({
-    status: connectionStatus,
-    qr: currentQrBase64,
-  });
+  res.json({ status: connectionStatus, qr: currentQrBase64 });
 });
 
 // الاستماع للرسايل الجديدة وإرسالها للارافل فوراً
 client.on("message", async (msg) => {
-  if (msg.from.includes("@g.us")) return; // تجاهل المجموعات لتقليل الضغط
+  if (msg.from.includes("@g.us")) return; // تجاهل المجموعات
 
   try {
     const laravelUrl = process.env.LARAVEL_API_URL || "https://whatsapplaravel-production.up.railway.app";
 
-    // 🕵️‍♂️ استخراج جهة الاتصال الفليبة للحصول على رقم الهاتف الصافي
-    const contact = await msg.getContact();
-    const cleanPhone = contact.number || msg.from.split('@')[0];
+    // الاحتفاظ بالـ ID كامل كما جاء من واتساب لضمان القدرة على الرد عليه لاحقاً
+    const cleanPhone = msg.from.split('@')[0];
 
-    // إرسال البيانات بـ المسميات المطابقة تماماً لكود لارافل الحالي عندك
     await axios.post(`${laravelUrl}/api/webhook/receive`, {
       phone: cleanPhone,
       message: msg.body,
     });
-    console.log(`تم تحويل رسالة مستلمة من الرقم الحقيقي ${cleanPhone} إلى Laravel`);
+    console.log(`تم تحويل الرسالة إلى Laravel من: ${cleanPhone}`);
   } catch (error) {
-    console.error("فشل إرسال الرسالة المستلمة للارافل:", error.message);
+    console.error("فشل إرسال الرسالة للارافل:", error.message);
   }
 });
 
-// الـ Endpoint الخاص بإرسال الرسائل المجدولة من طوابير لارافل
+// الـ Endpoint الخاص بإرسال الرسائل (يدعم الأرقام العادية والـ IDs المخفية)
 app.post("/send-message", async (req, res) => {
   const { phone, message } = req.body;
-  const formattedPhone = `${phone}@c.us`;
+  
+  // ✨ ذكاء اصطناعي برمجياً: لو الرقم طويل جداً (معرف LID خفي)، واتساب بتطلب توجيهه لـ @lid وليس @c.us
+  const suffix = phone.length > 13 ? '@lid' : '@c.us';
+  const formattedPhone = phone.includes('@') ? phone : `${phone}${suffix}`;
 
   try {
     await client.sendMessage(formattedPhone, message);
@@ -111,17 +102,10 @@ app.post("/send-message", async (req, res) => {
   }
 });
 
-// 🚀 1. تشغيل خادم الـ Express أولاً لربط البورت بالمنصة فوراً وقبول الـ Traffic ومنع الـ 502
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, "0.0.0.0", () => {
-  console.log(`Node Webhook Bridge Server is fully bound to port ${PORT}`);
-  
-  // ⏳ 2. تأخير تشغيل Puppeteer لمدة 5 ثواني كاملة لضمان استقرار الـ Proxy واختفاء الـ 502 تماماً
-  console.log("بانتظار استقرار الـ Proxy (5 ثواني)...");
+  console.log(`Node Server running on port ${PORT}`);
   setTimeout(() => {
-    console.log("جاري تشغيل Puppeteer و WhatsApp Web في الخلفية الآمنة...");
-    client.initialize().catch(err => {
-       console.error("خطأ حرج أثناء تشغيل عميل الواتساب ويب:", err.message);
-    });
-  }, 5000); // 5000 ملي ثانية تعطي السيرفر وقت كامل للاستقرار الشبكي أولاً
+    client.initialize().catch(err => console.error("خطأ تشغيل الواتساب:", err.message));
+  }, 5000);
 });
