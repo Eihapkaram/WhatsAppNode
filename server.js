@@ -83,12 +83,16 @@ client.on("message", async (msg) => {
   try {
     const laravelUrl = process.env.LARAVEL_API_URL || "https://whatsapplaravel-production.up.railway.app";
 
+    // 🕵️‍♂️ استخراج جهة الاتصال الفليبة للحصول على رقم الهاتف الصافي
+    const contact = await msg.getContact();
+    const cleanPhone = contact.number || msg.from.split('@')[0];
+
     // إرسال البيانات بـ المسميات المطابقة تماماً لكود لارافل الحالي عندك
     await axios.post(`${laravelUrl}/api/webhook/receive`, {
-      phone: msg.from.replace("@c.us", ""),
+      phone: cleanPhone,
       message: msg.body,
     });
-    console.log(`تم تحويل رسالة مستلمة من ${msg.from} إلى Laravel`);
+    console.log(`تم تحويل رسالة مستلمة من الرقم الحقيقي ${cleanPhone} إلى Laravel`);
   } catch (error) {
     console.error("فشل إرسال الرسالة المستلمة للارافل:", error.message);
   }
